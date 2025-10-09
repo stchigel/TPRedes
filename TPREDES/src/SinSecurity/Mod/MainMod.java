@@ -1,4 +1,4 @@
-package Mod;
+package SinSecurity.Mod;
 
 import java.io.*;
 import java.net.*;

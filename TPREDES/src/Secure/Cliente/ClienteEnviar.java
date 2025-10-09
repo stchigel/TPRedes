@@ -1,18 +1,17 @@
-package Cliente;
+package Secure.Cliente;
 
+import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.io.PrintWriter;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-import java.util.Objects;
 import java.util.Scanner;
 
 public class ClienteEnviar extends Thread{
-    PrintWriter out;
+    ObjectOutputStream out;
     boolean running=true;
     String nombreCliente;
     String miIP;
 
-    public ClienteEnviar(PrintWriter out, String miIP) {
+    public ClienteEnviar(ObjectOutputStream out, String miIP) {
         this.out = out;
         this.miIP=miIP;
     }
@@ -39,12 +38,18 @@ public class ClienteEnviar extends Thread{
 
 
         while(running) {
-            String mensajeCliente = scanner.nextLine();
-            if(mensajeCliente.equals("logout")){
-                out.println("#" + miIP);
-                running=false;
-            } else {
-                out.println(nombreCliente + ": " + mensajeCliente);
+            try {
+                String mensajeCliente = scanner.nextLine();
+                if(mensajeCliente.equals("logout")){
+                    out.writeObject("#" + miIP);
+                    out.flush();
+                    running=false;
+                } else {
+                    out.writeObject(nombreCliente + ": " + mensajeCliente);
+                    out.flush();
+                }
+            } catch (IOException e) {
+                throw new RuntimeException(e);
             }
 
         }

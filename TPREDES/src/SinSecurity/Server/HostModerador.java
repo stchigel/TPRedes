@@ -1,10 +1,9 @@
-package Server;
+package SinSecurity.Server;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Scanner;
 
 public class HostModerador extends Thread {
@@ -50,7 +49,7 @@ public class HostModerador extends Thread {
                     PrintWriter removed = outClientes.remove(ip);
                     if (removed != null) {
                         removed.close(); // libera el recurso de salida
-                        System.out.println("Cliente con IP " + ip + " eliminado");
+                        System.out.println("SinSecurity.Cliente con IP " + ip + " eliminado");
                     } else {
                         System.out.println("Error eliminado: entro pero no existe");
                     }

@@ -1,15 +1,13 @@
-package Server;
+package Secure.Server;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.PrintWriter;
+import java.io.*;
 
 public class HostCliente extends Thread {
-    BufferedReader in;
-    PrintWriter out;
+    ObjectInputStream in;
+    ObjectOutputStream out;
     boolean running=true;
 
-    public HostCliente(BufferedReader in, PrintWriter out) {
+    public HostCliente(ObjectInputStream in, ObjectOutputStream out) {
         this.in = in;
         this.out = out;
     }
@@ -21,16 +19,18 @@ public class HostCliente extends Thread {
     public void run(){
         try {
             while(running){
-                String mensajeCliente = in.readLine();
+                String mensajeCliente = (String) in.readObject();
                 System.out.println("recibido cliente " + mensajeCliente);
                 if(mensajeCliente==null){
                     System.out.println("Mensaje null de cliente");
                 } else
                 if(mensajeCliente.charAt(0)=='#'){
-                    out.println(mensajeCliente);
+                    out.writeObject(mensajeCliente);
+                    out.flush();
                     System.out.println("Enviado IP para cerrar");
                 } else {
-                    out.println(mensajeCliente);
+                    out.writeObject(mensajeCliente);
+                    out.flush();
                     System.out.println("Enviado a mod");
                 }
 
@@ -38,6 +38,8 @@ public class HostCliente extends Thread {
         }
         catch (IOException e) {
             System.out.println("Error: " + e.getMessage());
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
         }
     }
 }

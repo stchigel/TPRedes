@@ -1,4 +1,4 @@
-package Cliente;
+package SinSecurity.Cliente;
 
 import java.io.BufferedReader;
 import java.io.IOException;
