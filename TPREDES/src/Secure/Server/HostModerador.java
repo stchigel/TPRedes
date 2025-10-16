@@ -1,19 +1,44 @@
 package Secure.Server;
 
+import javax.crypto.Cipher;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.security.PublicKey;
+import java.security.SecureRandom;
+import java.security.Signature;
 import java.util.HashMap;
 import java.util.Scanner;
 
+import Secure.Compartido.EncryptedMessage;
+
 public class HostModerador extends Thread {
+    public static byte[] encryptGcm(SecretKey key, byte[] iv, byte[] plaintext) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        GCMParameterSpec spec = new GCMParameterSpec(128, iv); // 128-bit tag
+        cipher.init(Cipher.ENCRYPT_MODE, key, spec);
+        return cipher.doFinal(plaintext);
+    }
+    public static byte[] decryptGcm(SecretKey key, byte[] iv, byte[] ciphertext) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        GCMParameterSpec spec = new GCMParameterSpec(128, iv);
+        cipher.init(Cipher.DECRYPT_MODE, key, spec);
+        return cipher.doFinal(ciphertext);
+    }
     ObjectInputStream in;
     boolean running=true;
+    SecretKey aesKey;
+    private final PublicKey pubMod;
     /*HashSet<PrintWriter> outClientes;*/
     HashMap<String, ObjectOutputStream> outClientes;
 
-    public HostModerador(ObjectInputStream in) {
+    public HostModerador(ObjectInputStream in, SecretKey aesKey, PublicKey pubMod) {
         this.in = in;
         /*outClientes = new HashSet<>();*/
         outClientes = new HashMap<>();
+        this.aesKey=aesKey;
+        this.pubMod=pubMod;
     }
 
     public boolean isRunning() {
@@ -31,9 +56,27 @@ public class HostModerador extends Thread {
     public void run(){
         System.out.println("Hola");
         Scanner scanner = new Scanner(System.in);
+        SecureRandom sr = new SecureRandom();
         try {
             while(running){
-                String mensajeMod = (String) in.readObject();
+                Object obj = in.readObject();
+                String mensajeMod = null;
+                if (obj instanceof EncryptedMessage) {
+                    EncryptedMessage em = (EncryptedMessage) obj;
+                    byte[] decrypted = decryptGcm(aesKey, em.iv, em.ciphertext);
+                    mensajeMod = new String(decrypted, StandardCharsets.UTF_8);
+                    Signature sig = Signature.getInstance("SHA256withRSA");
+                    sig.initVerify(pubMod);
+                    sig.update(decrypted);
+                    boolean verified = sig.verify(em.signature);
+                    if (!verified) {
+                        System.out.println("Firma inválida");
+                        mensajeMod = null;
+                    }
+                } else if (obj instanceof String) {
+                    mensajeMod = (String) obj;
+                }
+
                 System.out.println("Recibido mod " + mensajeMod);
                 if(!mensajeMod.isEmpty() && mensajeMod.charAt(0)=='$'){
                     String sinPrimerCaracter = mensajeMod.substring(1);
@@ -64,6 +107,8 @@ public class HostModerador extends Thread {
         catch (IOException e) {
             System.out.println("Error: " + e.getMessage());
         } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
