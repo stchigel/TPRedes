@@ -5,9 +5,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.security.PublicKey;
-import java.security.SecureRandom;
-import java.security.Signature;
+import java.security.*;
 import java.util.HashMap;
 import java.util.Scanner;
 
@@ -26,6 +24,22 @@ public class HostModerador extends Thread {
         cipher.init(Cipher.DECRYPT_MODE, key, spec);
         return cipher.doFinal(ciphertext);
     }
+
+    public String desencriptarMensaje(EncryptedMessage encryptedMessage, PublicKey pub) throws Exception {
+        String mensaje;
+        byte[] decrypted = decryptGcm(aesKey, encryptedMessage.iv, encryptedMessage.ciphertext);
+        mensaje = new String(decrypted, StandardCharsets.UTF_8);
+        Signature sig = Signature.getInstance("SHA256withRSA");
+        sig.initVerify(pub);
+        sig.update(decrypted);
+        boolean verified = sig.verify(encryptedMessage.signature);
+        if (!verified) {
+            System.out.println("Firma inválida");
+            mensaje = null;
+        }
+        return mensaje;
+    }
+
     ObjectInputStream in;
     boolean running=true;
     SecretKey aesKey;
@@ -60,22 +74,8 @@ public class HostModerador extends Thread {
         try {
             while(running){
                 Object obj = in.readObject();
-                String mensajeMod = null;
-                if (obj instanceof EncryptedMessage) {
-                    EncryptedMessage em = (EncryptedMessage) obj;
-                    byte[] decrypted = decryptGcm(aesKey, em.iv, em.ciphertext);
-                    mensajeMod = new String(decrypted, StandardCharsets.UTF_8);
-                    Signature sig = Signature.getInstance("SHA256withRSA");
-                    sig.initVerify(pubMod);
-                    sig.update(decrypted);
-                    boolean verified = sig.verify(em.signature);
-                    if (!verified) {
-                        System.out.println("Firma inválida");
-                        mensajeMod = null;
-                    }
-                } else if (obj instanceof String) {
-                    mensajeMod = (String) obj;
-                }
+                String mensajeMod;
+                mensajeMod=desencriptarMensaje((EncryptedMessage) obj, pubMod);
 
                 System.out.println("Recibido mod " + mensajeMod);
                 if(!mensajeMod.isEmpty() && mensajeMod.charAt(0)=='$'){

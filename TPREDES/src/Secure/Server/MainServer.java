@@ -1,5 +1,7 @@
 package Secure.Server;
 
+import Secure.Compartido.EncryptedKey;
+
 import javax.crypto.*;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -32,8 +34,9 @@ public class MainServer {
             PublicKey pubModerador = (PublicKey) in.readObject();
             System.out.println("Clave pública del mod recibida.");
 
-            byte[] encryptedAesKey = (byte[]) in.readObject();
-            byte[] signedHash = (byte[]) in.readObject();
+            EncryptedKey encryptedKey = (EncryptedKey) in.readObject();
+            byte[] encryptedAesKey = encryptedKey.encryptedAesKey;
+            byte[] signedHash = encryptedKey.signedHash;
 
             Cipher rsaDec = Cipher.getInstance("RSA");
             rsaDec.init(Cipher.DECRYPT_MODE, priv);

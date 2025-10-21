@@ -45,6 +45,7 @@ public class ClienteEnviar extends Thread{
                     out.flush();
                     running=false;
                 } else {
+
                     out.writeObject(nombreCliente + ": " + mensajeCliente);
                     out.flush();
                 }
