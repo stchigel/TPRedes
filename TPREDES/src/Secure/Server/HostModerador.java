@@ -25,46 +25,61 @@ public class HostModerador extends Thread {
         return cipher.doFinal(ciphertext);
     }
 
-    public String desencriptarMensaje(EncryptedMessage encryptedMessage, PublicKey pub) throws Exception {
-        String mensaje;
-        byte[] decrypted = decryptGcm(aesKey, encryptedMessage.iv, encryptedMessage.ciphertext);
-        mensaje = new String(decrypted, StandardCharsets.UTF_8);
-        Signature sig = Signature.getInstance("SHA256withRSA");
-        sig.initVerify(pub);
-        sig.update(decrypted);
-        boolean verified = sig.verify(encryptedMessage.signature);
+
+    public static String decryptAndVerify(EncryptedMessage msg, SecretKey aesKey, PublicKey pubKey) throws Exception {
+        GCMParameterSpec spec = new GCMParameterSpec(128, msg.iv);
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, aesKey, spec);
+        byte[] decryptedBytes = cipher.doFinal(msg.ciphertext);
+        String decryptedMessage = new String(decryptedBytes, StandardCharsets.UTF_8);
+        Signature signature = Signature.getInstance("SHA256withRSA");
+        signature.initVerify(pubKey);
+        signature.update(decryptedMessage.getBytes(StandardCharsets.UTF_8));
+        boolean verified = signature.verify(msg.signature);
         if (!verified) {
-            System.out.println("Firma inválida");
-            mensaje = null;
+            throw new SecurityException("Firma no válida");
         }
-        return mensaje;
+        return decryptedMessage;
+    }
+    public static EncryptedMessage encryptAndSign(String mensaje, SecretKey aesKey, PrivateKey privKey) throws Exception {
+        byte[] iv = new byte[12];
+        new SecureRandom().nextBytes(iv);
+        GCMParameterSpec spec = new GCMParameterSpec(128, iv); // 128-bit tag
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, aesKey, spec);
+        byte[] ciphertext = cipher.doFinal(mensaje.getBytes(StandardCharsets.UTF_8));
+        Signature signature = Signature.getInstance("SHA256withRSA");
+        signature.initSign(privKey);
+        signature.update(mensaje.getBytes(StandardCharsets.UTF_8));
+        byte[] sigBytes = signature.sign();
+
+        return new EncryptedMessage(iv, ciphertext, sigBytes);
     }
 
     ObjectInputStream in;
     boolean running=true;
     SecretKey aesKey;
     private final PublicKey pubMod;
-    /*HashSet<PrintWriter> outClientes;*/
+    PrivateKey privServer;
     HashMap<String, ObjectOutputStream> outClientes;
+    HashMap<ObjectOutputStream, SecretKey> keysClientes;
 
-    public HostModerador(ObjectInputStream in, SecretKey aesKey, PublicKey pubMod) {
+    public HostModerador(ObjectInputStream in, SecretKey aesKey, PrivateKey privServer, PublicKey pubMod) {
         this.in = in;
-        /*outClientes = new HashSet<>();*/
         outClientes = new HashMap<>();
+        keysClientes = new HashMap<>();
         this.aesKey=aesKey;
         this.pubMod=pubMod;
+        this.privServer = privServer;
     }
 
     public boolean isRunning() {
         return running;
     }
 
-    /*public void addCliente(PrintWriter cli){
-        outClientes.add(cli);
-    }*/
-
-    public void addCliente(String ip, ObjectOutputStream cli){
+    public void addCliente(String ip, ObjectOutputStream cli, SecretKey aesKey){
         outClientes.put(ip, cli);
+        keysClientes.put(cli, aesKey);
     }
 
     public void run(){
@@ -75,14 +90,14 @@ public class HostModerador extends Thread {
             while(running){
                 Object obj = in.readObject();
                 String mensajeMod;
-                mensajeMod=desencriptarMensaje((EncryptedMessage) obj, pubMod);
+                mensajeMod=decryptAndVerify((EncryptedMessage) obj, aesKey, pubMod);
 
                 System.out.println("Recibido mod " + mensajeMod);
                 if(!mensajeMod.isEmpty() && mensajeMod.charAt(0)=='$'){
                     String sinPrimerCaracter = mensajeMod.substring(1);
                     System.out.println("Aceptado");
                     for (ObjectOutputStream out : outClientes.values()){
-                        out.writeObject(sinPrimerCaracter); // ObjectOutputStream
+                        out.writeObject(encryptAndSign(sinPrimerCaracter, keysClientes.get(out), privServer)); // ObjectOutputStream
                         out.flush();
                         System.out.println("Mandado a cliente");
                     }
@@ -90,7 +105,9 @@ public class HostModerador extends Thread {
                     String ip = mensajeMod.substring(1);
                     ObjectOutputStream removed = outClientes.remove(ip);
                     if (removed != null) {
-                        removed.close(); // libera el recurso de salida
+                        removed.writeObject(encryptAndSign("Adiós", keysClientes.get(removed), privServer));
+                        keysClientes.remove(removed);
+                        removed.close();
                         System.out.println("SinSecurity.Cliente con IP " + ip + " eliminado");
                     } else {
                         System.out.println("Error eliminado: entro pero no existe");
@@ -98,7 +115,7 @@ public class HostModerador extends Thread {
                 } else {
                     for (ObjectOutputStream out : outClientes.values()){
                         System.out.println("Rechazado");
-                        out.writeObject("Un moderador ha quitado un mensaje, razón: " + mensajeMod);
+                        out.writeObject(encryptAndSign("Un moderador ha quitado un mensaje, razón: " + mensajeMod, keysClientes.get(out), privServer));
                         out.flush();
                     }
                 }

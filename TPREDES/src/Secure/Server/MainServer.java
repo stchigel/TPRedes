@@ -1,5 +1,6 @@
 package Secure.Server;
 
+import Secure.Compartido.Claves;
 import Secure.Compartido.EncryptedKey;
 
 import javax.crypto.*;
@@ -13,87 +14,72 @@ import java.util.Base64;
 
 public class MainServer {
 
-    public static void main(String[] args) throws NoSuchAlgorithmException {
-        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
-        keyGen.initialize(2048);
-        KeyPair serverKeys = keyGen.generateKeyPair();
-        PublicKey pub = serverKeys.getPublic();
-        PrivateKey priv = serverKeys.getPrivate();
+    public static SecretKey desencriptarClave(EncryptedKey encryptedKey, PrivateKey privReceptor, PublicKey pubEmisor) throws Exception {
+        byte[] encryptedAesKey = encryptedKey.encryptedAesKey;
+        byte[] signedHash = encryptedKey.signedHash;
+        Cipher rsaDec = Cipher.getInstance("RSA");
+        rsaDec.init(Cipher.DECRYPT_MODE, privReceptor);
+        byte[] aesKeyBytes = rsaDec.doFinal(encryptedAesKey);
+        SecretKey aesKey = new SecretKeySpec(aesKeyBytes, "AES");
+        System.out.println("Clave AES descifrada correctamente.");
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] localHash = digest.digest(aesKeyBytes);
+        Signature sig = Signature.getInstance("SHA256withRSA");
+        sig.initVerify(pubEmisor);
+        sig.update(localHash);
+        boolean verified = sig.verify(signedHash);
+        if (verified) {
+            System.out.println("Firma del cliente verificada. Clave AES auténtica.");
+            return aesKey;
+        } else {
+            System.out.println("Firma inválida. Posible ataque o error.");
+            System.exit(0);
+            return null;
+        }
+    }
+    public static PublicKey intercambiarClaves(ObjectOutputStream out, ObjectInputStream in, PublicKey pub) throws IOException, ClassNotFoundException {
+        out.writeObject(pub);
+        out.flush();
+        return (PublicKey) in.readObject();
+    }
+    public static void iniciarCliente(ServerSocket socket, HostModerador hm, Claves claves, ObjectOutputStream outMod, SecretKey aesKeyMod) throws Exception {
+        Socket clientSocket = socket.accept();
+        ObjectOutputStream outC = new ObjectOutputStream(clientSocket.getOutputStream());
+        ObjectInputStream inC = new ObjectInputStream(clientSocket.getInputStream());
+        PublicKey pubCliente = intercambiarClaves(outC, inC, claves.pub);
+        SecretKey aesKeyCliente = desencriptarClave((EncryptedKey) inC.readObject(), claves.priv, pubCliente);
+        hm.addCliente(clientSocket.getInetAddress().getHostAddress(), outC, aesKeyCliente);
+        HostCliente hc = new HostCliente(inC, outMod, aesKeyMod, aesKeyCliente, claves.priv, pubCliente);
+        hc.start();
+    }
 
+    public static void main(String[] args) throws NoSuchAlgorithmException {
+        Claves claves = new Claves("RSA", 2048);
         try (ServerSocket serverSocketCli = new ServerSocket(30000);
              ServerSocket serverSocketMod = new ServerSocket(30001)) {
-
             Socket clientSocketMod = serverSocketMod.accept();
-
             ObjectOutputStream out = new ObjectOutputStream(clientSocketMod.getOutputStream());
             ObjectInputStream in = new ObjectInputStream(clientSocketMod.getInputStream());
 
-            out.writeObject(pub);
-            out.flush();
-            System.out.println("Clave pública del servidor enviada.");
-            PublicKey pubModerador = (PublicKey) in.readObject();
-            System.out.println("Clave pública del mod recibida.");
+            PublicKey pubModerador = intercambiarClaves(out, in, claves.pub);
+            SecretKey aesKey = desencriptarClave((EncryptedKey) in.readObject(), claves.priv, pubModerador);
 
-            EncryptedKey encryptedKey = (EncryptedKey) in.readObject();
-            byte[] encryptedAesKey = encryptedKey.encryptedAesKey;
-            byte[] signedHash = encryptedKey.signedHash;
-
-            Cipher rsaDec = Cipher.getInstance("RSA");
-            rsaDec.init(Cipher.DECRYPT_MODE, priv);
-            byte[] aesKeyBytes = rsaDec.doFinal(encryptedAesKey);
-            SecretKey aesKey = new SecretKeySpec(aesKeyBytes, "AES");
-            System.out.println("Clave AES descifrada correctamente.");
-
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] localHash = digest.digest(aesKeyBytes);
-
-            Signature sig = Signature.getInstance("SHA256withRSA");
-            sig.initVerify(pubModerador);
-            sig.update(localHash);
-            boolean verified = sig.verify(signedHash);
-
-            if (verified) {
-                System.out.println("Firma del cliente verificada. Clave AES auténtica.");
-            } else {
-                System.out.println("Firma inválida. Posible ataque o error.");
-                clientSocketMod.close();
-                serverSocketMod.close();
-                System.exit(0);
-            }
-
-            HostModerador hm = new HostModerador(in, aesKey, pubModerador);
+            HostModerador hm = new HostModerador(in, aesKey, claves.priv, pubModerador);
             hm.start();
 
             while (true) {
                 Socket clientSocket = serverSocketCli.accept();
-
                 ObjectOutputStream outC = new ObjectOutputStream(clientSocket.getOutputStream());
                 ObjectInputStream inC = new ObjectInputStream(clientSocket.getInputStream());
-
-                String ip = clientSocket.getInetAddress().getHostAddress();
-                hm.addCliente(ip, outC);
-
-                HostCliente hc = new HostCliente(inC, out);
+                PublicKey pubCliente = intercambiarClaves(outC, inC, claves.pub);
+                SecretKey aesKeyCliente = desencriptarClave((EncryptedKey) inC.readObject(), claves.priv, pubCliente);
+                hm.addCliente(clientSocket.getInetAddress().getHostAddress(), outC, aesKeyCliente);
+                HostCliente hc = new HostCliente(inC, out, aesKey, aesKeyCliente, claves.priv, pubCliente);
                 hc.start();
             }
-        } catch (IOException e) {
-            System.out.println("Error: " + e.getMessage());
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException(e);
-        } catch (NoSuchPaddingException e) {
-            throw new RuntimeException(e);
-        } catch (IllegalBlockSizeException e) {
-            throw new RuntimeException(e);
-        } catch (BadPaddingException e) {
-            throw new RuntimeException(e);
-        } catch (InvalidKeyException e) {
-            throw new RuntimeException(e);
-        } catch (SignatureException e) {
+
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
-    }
-
-    public String firmar(String mensaje){
-        return mensaje + " ,firmado con clave privada";
     }
 }
