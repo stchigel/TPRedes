@@ -12,20 +12,6 @@ import java.util.Scanner;
 import Secure.Compartido.EncryptedMessage;
 
 public class HostModerador extends Thread {
-    public static byte[] encryptGcm(SecretKey key, byte[] iv, byte[] plaintext) throws Exception {
-        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        GCMParameterSpec spec = new GCMParameterSpec(128, iv); // 128-bit tag
-        cipher.init(Cipher.ENCRYPT_MODE, key, spec);
-        return cipher.doFinal(plaintext);
-    }
-    public static byte[] decryptGcm(SecretKey key, byte[] iv, byte[] ciphertext) throws Exception {
-        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        GCMParameterSpec spec = new GCMParameterSpec(128, iv);
-        cipher.init(Cipher.DECRYPT_MODE, key, spec);
-        return cipher.doFinal(ciphertext);
-    }
-
-
     public static String decryptAndVerify(EncryptedMessage msg, SecretKey aesKey, PublicKey pubKey) throws Exception {
         GCMParameterSpec spec = new GCMParameterSpec(128, msg.iv);
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
